@@ -1,0 +1,6 @@
+requests
+h5py
+numpy
+progressbar2
+colorama
+termcolor

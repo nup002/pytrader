@@ -4,7 +4,7 @@ import hashlib
 import time
 import requests
 import base64
-
+import time
 
 class BitfinexError(Exception):
     pass
@@ -18,7 +18,8 @@ class BaseClient(object):
     #api_url = 'https://bf1.apiary-mock.com/'
     api_url = 'https://api.bitfinex.com/'
     exception_on_error = True
-
+    lastcall = time.time()
+    
     def __init__(self, proxydict=None, *args, **kwargs):
         self.proxydict = proxydict
 
@@ -50,21 +51,49 @@ class BaseClient(object):
         Raises a ``requests.HTTPError`` if the response status isn't 200, and
         raises a :class:`BitfinexError` if the response contains a json encoded
         error message.
+        
+        A timer has been implemented to limit the time between api calls to 1.3 seconds.
         """
+        retry = False
+        timeout = False
         return_json = kwargs.pop('return_json', False)
-        url = self.api_url + url
-        response = func(url, *args, **kwargs)
+        while True:
+            if retry:
+                print("Retrying API call.")
+            nowtime = time.time()
+            while self.lastcall + 1.3 > nowtime:
+                nowtime = time.time()
+                time.sleep(0.1)
+                
+            fullurl = self.api_url + url
+            self.lastcall = time.time()
+            try:
+                response = func(fullurl, timeout=5, *args, **kwargs)
+            except  requests.exceptions.ConnectTimeout:
+                print("\nTimeout!")
+                timeout=True
+                retry=True
+                 
+            if not timeout:
+                if retry:
+                    print('Response Code: ' + str(response.status_code))
+                    print('Response Header: ' + str(response.headers))
+                if 'proxies' not in kwargs:
+                    kwargs['proxies'] = self.proxydict
+                    
 
-        if 'proxies' not in kwargs:
-            kwargs['proxies'] = self.proxydict
-            
-        #print 'Response Code: ' + str(response.status_code) 
-        #print 'Response Header: ' + str(response.headers)
-        #print 'Response Content: '+ str(response.content)
-
-        # Check for error, raising an exception if appropriate.
-        response.raise_for_status()
-
+                # Check for error, raising an exception if appropriate.
+                # If the error code is 429, it is a ddos protection, i.e. too many requests in too short time.
+                # In that case we sleep 5sec and try the request again.
+                if  response.status_code == 429:
+                    retryAfter = int(response.headers['Retry-After'])
+                    print("\nDDoS protection. Waiting {} seconds...".format(retryAfter))
+                    time.sleep(retryAfter)
+                    retry = True
+                else:
+                    #print("Request status code: {}".format(response.status_code))
+                    response.raise_for_status()
+                    break
         try:
             json_response = response.json()
         except ValueError:
@@ -120,16 +149,27 @@ class Public(BaseClient):
         LOW     float   Lowest execution during the timeframe
         VOLUME  float   Quantity of symbol traded within the timeframe
         """
-
+        timeframe_valids= ['1m', '5m', '15m', '30m', '1h', '3h', '6h', '12h', '1D', '7D', '14D', '1M']
         params = ""
         if kwargs:
             params = "?"
             for key, value in kwargs.items():
+                if key=='timeframe':
+                    if value not in timeframe_valids:
+                        raise RuntimeError("{} is not a valid candlestick timeframe. Valid values are: '1m', '5m', '15m', '30m', '1h', '3h', '6h', '12h', '1D', '7D', '14D', '1M'".format(value))
                 params += key + '=' + str(value) + "&"
             params = params[:-1]
             
+        result = self._get("v2/candles/trade:{}:{}/{}{}".format(timeframe, symbol, section, params), return_json=True)
         
-        return self._get("v2/candles/trade:{}:{}/{}{}".format(timeframe, symbol, section, params), return_json=True)
+        if len(result)>0:
+            if isinstance(result[0], list):
+                for n in range(len(result)):
+                    result[n][0] = result[n][0]/1000
+            else:
+                result[0] = result[0]/1000
+                result = [result]
+        return result
         
         
 class Trading(Public):
