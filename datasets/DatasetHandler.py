@@ -7,7 +7,7 @@ import datetime
 from colorama import Fore, Back, Style
 #Handler class for the HDF5 datasets used in pytrader
 
-class DatasetHandler:
+class CandlesHandler:
     """A dataset handler class that handles the hdf5 files used for storing data in pytrader"""
     
     def __init__(self, dataset_folder):

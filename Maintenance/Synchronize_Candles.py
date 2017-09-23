@@ -15,7 +15,7 @@ init(autoreset=True)
 apiClient = client.Public()
 
 #Get the candles dataset handler
-handler = DatasetHandler.DatasetHandler(candlespath)
+handler = DatasetHandler.CandlesHandler(candlespath)
 
 #syncronize candles dataset with bitfinex
 handler.syncDatafile(apiClient)
